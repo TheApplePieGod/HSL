@@ -60,7 +60,7 @@ namespace HSL
                     // Left is the function call
                     node.Type = NodeType::BinaryExpression;
                     node.Data = ParseData::BinaryExpression::Create(
-                        tokens[offset + 1].Value,
+                        tokens[parsedFunc.LastToken + 1].Value,
                         callNode,
                         right
                     );
@@ -101,9 +101,10 @@ namespace HSL
                 
                 if (tokens[offset + 1].Value == "[") // If we are using the bracket operator, check for anything following
                 {
-                    if (tokens[right.End + 2].Value == ".") // Member expression
+                    right.End += 1; // account for closing bracket
+                    if (tokens[right.End + 1].Value == ".") // Member expression
                     {
-                        ParseNode prop = ParseBasic(tokens, right.End + 3);
+                        ParseNode prop = ParseBasic(tokens, right.End + 2);
 
                         // Obj is the expression
                         node.Type = NodeType::MemberExpression;
@@ -113,14 +114,14 @@ namespace HSL
                         );
                         node.End = prop.End;
                     }
-                    else if (IsBasicOperator(tokens[right.End + 2].Value)) // Operators
+                    else if (IsBasicOperator(tokens[right.End + 1].Value)) // Operators
                     {
-                        ParseNode newRight = ParseBasic(tokens, right.End + 3);
+                        ParseNode newRight = ParseBasic(tokens, right.End + 2);
 
                         // Left is the expression
                         node.Type = NodeType::BinaryExpression;
                         node.Data = ParseData::BinaryExpression::Create(
-                            tokens[offset + 1].Value,
+                            tokens[right.End + 1].Value,
                             expressionNode,
                             newRight
                         );
@@ -188,12 +189,43 @@ namespace HSL
             {
                 auto args = ParseList(tokens, offset + 2, ")", ",");
 
-                node.Type = NodeType::CastExpression;
-                node.Data = ParseData::CastExpression::Create(
-                    tokens[offset].Value,
-                    args.Elements
-                );
-                node.End = args.LastToken;
+                ParseNode castNode = {
+                    NodeType::CastExpression,
+                    ParseData::CastExpression::Create(
+                        tokens[offset].Value,
+                        args.Elements
+                    ),
+                    offset, args.LastToken
+                };
+
+                // Check for following operations
+                if (tokens[args.LastToken + 1].Value == ".") // Member expression
+                {
+                    ParseNode prop = ParseBasic(tokens, args.LastToken + 2);
+
+                    // Obj is the cast
+                    node.Type = NodeType::MemberExpression;
+                    node.Data = ParseData::MemberExpression::Create(
+                        castNode,
+                        prop
+                    );
+                    node.End = prop.End;
+                }
+                else if (IsBasicOperator(tokens[args.LastToken + 1].Value)) // Operators
+                {
+                    ParseNode newRight = ParseBasic(tokens, args.LastToken + 2);
+
+                    // Left is the cast
+                    node.Type = NodeType::BinaryExpression;
+                    node.Data = ParseData::BinaryExpression::Create(
+                        tokens[args.LastToken + 1].Value,
+                        castNode,
+                        newRight
+                    );
+                    node.End = newRight.End;
+                }
+                else
+                    node = castNode;
             }
             else // Invalid
                 throw std::exception("Unexpected type token");
@@ -223,14 +255,55 @@ namespace HSL
         else if (tokens[offset].Value == "(") // Parenthesis
         {
             auto parsedExpression = ParseBasic(tokens, offset + 1);
+            parsedExpression.End++; // account for closing parenthesis
 
-            node.Type = NodeType::ParenExpression;
-            node.Data = ParseData::ParenExpression::Create(
-                parsedExpression
+            ParseNode parenNode = {
+                NodeType::ParenExpression,
+                ParseData::ParenExpression::Create(
+                    parsedExpression
+                ),
+                offset, parsedExpression.End
+            };
+
+            if (tokens[parsedExpression.End + 1].Value == ".") // Member expression
+            {
+                ParseNode prop = ParseBasic(tokens, parsedExpression.End + 2);
+
+                // Obj is the expression
+                node.Type = NodeType::MemberExpression;
+                node.Data = ParseData::MemberExpression::Create(
+                    parenNode,
+                    prop
+                );
+                node.End = prop.End;
+            }
+            else if (IsBasicOperator(tokens[parsedExpression.End + 1].Value)) // Operators
+            {
+                ParseNode newRight = ParseBasic(tokens, parsedExpression.End + 2);
+
+                // Left is the expression
+                node.Type = NodeType::BinaryExpression;
+                node.Data = ParseData::BinaryExpression::Create(
+                    tokens[parsedExpression.End + 1].Value,
+                    parenNode,
+                    newRight
+                );
+                node.End = newRight.End;
+            }
+            else
+                node = parenNode;
+        }
+        else if (tokens[offset].Value == "-" || tokens[offset].Value == "!") // Negation
+        {
+            ParseNode target = ParseBasic(tokens, offset + 1);
+
+            node.Type = NodeType::UpdateExpression;
+            node.Data = ParseData::UpdateExpression::Create(
+                tokens[offset].Value,
+                true,
+                target
             );
-            node.End = parsedExpression.End + 1;
-
-            //if (tokens[node.End + 1].)
+            node.End = target.End;
         }
         else
             throw std::exception("Invalid syntax");
@@ -248,13 +321,13 @@ namespace HSL
         size_t statementEnd = endLoc - tokens.begin();
 
         size_t i = offset;
-        for (i; i < statementEnd; i++)
+        for (i; i < statementEnd; i += 2)
         {
+            if (tokens[i].Value == endChar) break;
+
             // Parse the expression
             ParseNode parsed = ParseBasic(tokens, i);
             returnVal.Elements.push_back(parsed);
-
-            i = parsed.End;
 
             // Search for an end char inside the parsed statement. If found, then we need to update our statement end so that it is no longer
             // pointing to the end char inside the parsed statement
@@ -274,17 +347,13 @@ namespace HSL
                 statementEnd = endLoc - tokens.begin();
             }
 
-            // Find the next delim token which indicates the next argument
-            auto delimLoc = std::find_if(tokens.begin() + i, tokens.end(), [delim](const Token& val){ return val.Value == delim; });
-
-            // If no delims are found inside the block then we are done
-            if (delimLoc == tokens.end() || delimLoc - tokens.begin() > statementEnd)
-                break;
-
-            i = delimLoc - tokens.begin();
+            i = parsed.End;
         }
 
-        returnVal.LastToken = i + 1;
+        if (i == offset)
+            returnVal.LastToken = i;
+        else
+            returnVal.LastToken = i - 1;
 
         return returnVal;
     }
@@ -303,7 +372,7 @@ namespace HSL
         offset = Test.End + 2; 
 
         ParseNode Update = ParseStatement(tokens, offset);
-        offset = Update.End + 2; // Account for semicolon & parenthesis
+        offset = Update.End + 1; // Account for semicolon & parenthesis
 
         if (tokens[offset + 1].Value != "{") throw std::exception("Expected { after for loop");
 
@@ -333,8 +402,10 @@ namespace HSL
         size_t statementEnd = endLoc - tokens.begin();
 
         size_t i = offset;
-        for (i; i < statementEnd; i++)
+        for (i; i < statementEnd; i += 3)
         {
+            if (tokens[i].Value == ")") break;
+
             // Parse the expression
             if (i + 1 >= tokens.size()) throw std::exception("Unexpected end of function declaration");
             if (tokens[i].Type != TokenType::Type) throw std::exception("Expected a parameter type");
@@ -343,18 +414,12 @@ namespace HSL
                 tokens[i].Value,
                 tokens[i + 1].Value
             });
-
-            // Find the next , token which indicates the next argument
-            auto commaLoc = std::find_if(tokens.begin() + i, tokens.end(), [](const Token& val){ return val.Value == ","; });
-
-            // If no commas are found inside the block then we are done
-            if (commaLoc == tokens.end() || commaLoc - tokens.begin() > statementEnd)
-                break;
-
-            i = commaLoc - tokens.begin();
         }
 
-        returnVal.LastToken = i + 2;
+        if (i == offset)
+            returnVal.LastToken = i;
+        else
+            returnVal.LastToken = i - 1;
 
         return returnVal;
     }
@@ -394,7 +459,6 @@ namespace HSL
             );
             node.End = parsedInit.End + 1; // Account for semicolon
 
-            // TODO: paren resolving
             if (tokens[parsedInit.End + 1].Value != ";") throw std::exception("Missing ; after variable initialization");
             
             // Return right away
@@ -433,6 +497,7 @@ namespace HSL
         size_t statementEnd = semiLoc - tokens.begin();
 
         bool isConst = false;
+        bool isUniform = false;
         ParseNode leftNode;
         std::string assignmentOperator;
         for (size_t i = offset; i < statementEnd; i++)
@@ -444,6 +509,7 @@ namespace HSL
                 if (node.Type != NodeType::None) throw std::exception("Unexpected keyword");
                     
                 if (token.Value == "const") isConst = true;
+                if (token.Value == "uniform") isUniform = true;
                 else if (token.Value == "for")
                 {
                     ParseNode parsedLoop = ParseForLoop(tokens, i + 2);
@@ -453,7 +519,20 @@ namespace HSL
                 }
                 else if (token.Value == "if")
                 {
+                    ParseNode condition = ParseBasic(tokens, i + 2);
                     
+                    if (tokens[condition.End + 2].Value != "{") throw std::exception("Expected { after if statement");
+
+                    ParseNode body = ParseBlock(tokens, condition.End + 2);
+
+                    node.Type = NodeType::IfStatement;
+                    node.Data = ParseData::IfStatement::Create(
+                        condition,
+                        body
+                    );
+                    node.End = body.End;
+
+                    return node;
                 }
                 else if (token.Value == "while")
                 {
@@ -468,6 +547,22 @@ namespace HSL
                         parsedValue
                     );
                     node.End = parsedValue.End + 1; // account for semicolon
+
+                    // Return right away
+                    return node;
+                }
+                else if (token.Value == "struct")
+                {
+                    if (tokens[i + 2].Value != "{") throw std::exception("Expected { after struct declaration");
+
+                    ParseNode body = ParseBlock(tokens, i + 2);
+
+                    node.Type = NodeType::StructDeclaration;
+                    node.Data = ParseData::StructDeclaration::Create(
+                        tokens[i + 1].Value,
+                        body
+                    );
+                    node.End = body.End + 1; // account for semicolon
 
                     // Return right away
                     return node;
@@ -547,7 +642,8 @@ namespace HSL
             }
         }
 
-        // If nothing else happens then we just return the left node
+        // If nothing else happens then we just return the left node and account for semicolon
+        leftNode.End++;
         return leftNode;
     }
 
@@ -557,11 +653,13 @@ namespace HSL
 
         std::vector<Token>::const_iterator scopeLoc;
         u32 blockStart = offset;
+        bool scoped = false;
         if (tokens[offset].Value == "{") // If our first character is a brace, then we know our scope is limited to the closing brace
         {
             auto braceLoc = std::find_if(tokens.begin() + offset, tokens.end(), [](const Token& val){ return val.Value == "}"; });
             if (braceLoc == tokens.end()) throw std::exception("Missing }");
             offset++;
+            scoped = true;
         }
 
         ParseNode statement = ParseStatement(tokens, offset);
@@ -577,6 +675,7 @@ namespace HSL
         ParseNode blockNode = {
             NodeType::BlockStatement,
             ParseData::BlockStatement::Create(
+                scoped,
                 nodes
             ),
             blockStart, nodes.empty() ? offset + 1 : nodes.back().End + 1
@@ -596,6 +695,9 @@ namespace HSL
             value == "^"  ||
             value == "&"  ||
             value == "&&" ||
+            value == "==" ||
+            value == "<=" ||
+            value == ">=" ||
             value == "|"  ||
             value == "||" ||
             value == "<"  ||

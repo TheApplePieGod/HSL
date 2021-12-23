@@ -57,6 +57,7 @@ namespace HSL
                 i = src.find("*/", i); // Advance the lexer position to the first occurance of '*/'
                 if (i == std::numeric_limits<size_t>::max()) // If there are end statements then we are done
                     break;
+                i++; // second character
                 continue;
             }
 
@@ -155,18 +156,20 @@ namespace HSL
     bool Lexer::IsType(const std::string& token)
     {
         return (
-            token._Starts_with("vec")  ||
-            token._Starts_with("bvec") ||
-            token._Starts_with("ivec") ||
-            token._Starts_with("uvec") ||
-            token._Starts_with("dvec") ||
-            token == "bool"            ||
-            token == "int"             ||
-            token == "uint"            ||
-            token == "float"           ||
-            token == "double"          ||
-            token == "void"            ||
-            token == "tex2d"
+            (token._Starts_with("vec") && std::isdigit(token[3]))  ||
+            (token._Starts_with("bvec") && std::isdigit(token[3])) ||
+            (token._Starts_with("ivec") && std::isdigit(token[3])) ||
+            (token._Starts_with("uvec") && std::isdigit(token[3])) ||
+            (token._Starts_with("dvec") && std::isdigit(token[3])) ||
+            (token._Starts_with("mat") && std::isdigit(token[3]) ) || // TODO: add more matrix types
+            token == "bool"     || 
+            token == "int"      ||
+            token == "uint"     ||
+            token == "float"    ||
+            token == "double"   ||
+            token == "void"     ||
+            token == "tex2d"    ||
+            token == "texCube"
         );
     }
 

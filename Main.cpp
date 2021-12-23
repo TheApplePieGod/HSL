@@ -2,6 +2,7 @@
 
 #include "Lexer.h"
 #include "Parser.h"
+#include "Compiler.h"
 
 int main(char* argv, int argc)
 {
@@ -11,7 +12,12 @@ int main(char* argv, int argc)
 
     auto tokens = HSL::Lexer::Lexify(buffer.str());
     auto parsed = HSL::Parser::Parse(tokens);
-    auto nodes = ((HSL::ParseData::BlockStatement*)parsed.Data.get())->Body;
+
+    HSL::Compiler comp(HSL::CompileTarget::OpenGLSL);
+    auto finalCode = comp.Compile(parsed);
+
+    std::ofstream o("../../../test/Out.glsl", std::ios::binary);
+    o << finalCode;
 
     return 0;
 }

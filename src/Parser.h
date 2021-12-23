@@ -15,7 +15,6 @@ namespace HSL
         BlockStatement,
         Literal,
         Identifier,
-        Expression,
         BinaryExpression,
         MemberExpression,
         ParenExpression,
@@ -26,6 +25,7 @@ namespace HSL
         ListExpression,
         VariableDeclaration,
         FunctionDeclaration,
+        StructDeclaration,
         ForStatement,
         IfStatement,
         WhileStatement,
@@ -46,8 +46,9 @@ namespace HSL
     {
         struct BlockStatement
         {
-            BlockStatement(const std::vector<ParseNode>& body) : Body(body) {}
+            BlockStatement(bool scoped, const std::vector<ParseNode>& body) : Scoped(scoped), Body(body) {}
 
+            bool Scoped;
             std::vector<ParseNode> Body;
 
             PARSE_DATA_CREATE(BlockStatement);
@@ -70,12 +71,7 @@ namespace HSL
 
             PARSE_DATA_CREATE(Identifier);
         };
-
-        struct Expression
-        {
-
-        };
-
+        
         struct BinaryExpression
         {
             BinaryExpression(const std::string& op, const ParseNode& left, const ParseNode& right) : Operator(op), Left(left), Right(right) {}
@@ -163,6 +159,7 @@ namespace HSL
                 : Const(isConst), Type(type), Name(name), ArrayCount(arrayCount), Init(init) {}
 
             bool Const;
+            bool Uniform;
             std::string Type;
             std::string Name;
             int ArrayCount;
@@ -192,6 +189,16 @@ namespace HSL
             PARSE_DATA_CREATE(FunctionDeclaration);
         };
 
+        struct StructDeclaration
+        {
+            StructDeclaration(const std::string& name, const ParseNode& body) : Name(name), Body(body) {}
+
+            std::string Name;
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(StructDeclaration);
+        };
+
         struct ForStatement
         {
             ForStatement(const ParseNode& init, const ParseNode& test, const ParseNode& update, const ParseNode& body)
@@ -208,12 +215,22 @@ namespace HSL
 
         struct IfStatement
         {
+            IfStatement(const ParseNode& condition, const ParseNode& body) : Condition(condition), Body(body) {}
 
+            ParseNode Condition;
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(IfStatement);
         };
 
         struct WhileStatement
         {
+            WhileStatement(const ParseNode& condition, const ParseNode& body) : Condition(condition), Body(body) {}
 
+            ParseNode Condition;
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(WhileStatement);
         };
 
         struct ReturnStatement
