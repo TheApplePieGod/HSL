@@ -178,7 +178,8 @@ namespace HSL
             token == "if"      ||
             token == "while"   ||
             token == "struct"  ||
-            token == "uniform"
+            token == "uniform" ||
+            token == "return"
         );
     }
 }

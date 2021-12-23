@@ -8,7 +8,7 @@ vec3 GaussianHorizontal(vec2 texCoords, uint mip, float blurScale, float blurStr
     vec3 originialResult = textureLod(image, texCoords, mip).rgb * weights[0]; // Current fragment's contribution
     vec3 result = originialResult;
 
-    for (int i = 1; i < 5; i++)
+    for (int i = 1; i < 5; i++;)
     {
         result += textureLod(image, texCoords + vec2(texOffset.x * i, 0.0), mip).rgb * weights[i] * blurStrength;
         result += textureLod(image, texCoords - vec2(texOffset.x * i, 0.0), mip).rgb * weights[i] * blurStrength;
@@ -21,7 +21,7 @@ vec3 GaussianVertical(vec2 texCoords, uint mip, float blurScale, float blurStren
     vec2 texOffset = 1.0 / textureSize(image, int(mip)) * blurScale; // Size of single texel
     vec3 result = textureLod(image, texCoords, mip).rgb * weights[0]; // Current fragment's contribution
 
-    for (int i = 1; i < 5; i++)
+    for (int i = 1; i < 5; i++;)
     {
         result += textureLod(image, texCoords + vec2(0.0, texOffset.y * i), mip).rgb * weights[i] * blurStrength;
         result += textureLod(image, texCoords - vec2(0.0, texOffset.y * i), mip).rgb * weights[i] * blurStrength;

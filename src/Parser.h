@@ -18,7 +18,9 @@ namespace HSL
         Expression,
         BinaryExpression,
         MemberExpression,
+        ParenExpression,
         AssignmentExpression,
+        UpdateExpression,
         CallExpression,
         CastExpression,
         ListExpression,
@@ -26,7 +28,8 @@ namespace HSL
         FunctionDeclaration,
         ForStatement,
         IfStatement,
-        WhileStatement
+        WhileStatement,
+        ReturnStatement
     };
 
     struct ParseNode
@@ -94,6 +97,15 @@ namespace HSL
             PARSE_DATA_CREATE(MemberExpression);
         };
 
+        struct ParenExpression
+        {
+            ParenExpression(const ParseNode& inside) : Inside(inside) {}
+
+            ParseNode Inside;
+
+            PARSE_DATA_CREATE(ParenExpression);
+        };
+
         struct AssignmentExpression
         {
             AssignmentExpression(const std::string& op, const ParseNode& left, const ParseNode& right) : Operator(op), Left(left), Right(right) {}
@@ -103,6 +115,17 @@ namespace HSL
             ParseNode Right;
 
             PARSE_DATA_CREATE(AssignmentExpression);
+        };
+
+        struct UpdateExpression
+        {
+            UpdateExpression(const std::string& op, bool prefix, const ParseNode& target) : Operator(op), Prefix(prefix), Target(target) {}
+
+            std::string Operator;
+            bool Prefix;
+            ParseNode Target;
+
+            PARSE_DATA_CREATE(UpdateExpression);
         };
 
         struct CallExpression
@@ -117,10 +140,10 @@ namespace HSL
 
         struct CastExpression
         {
-            CastExpression(const std::string& type, const ParseNode& right) : Type(type), Right(right) {}
+            CastExpression(const std::string& type, const std::vector<ParseNode>& args) : Type(type), Args(args) {}
 
             std::string Type;
-            ParseNode Right;
+            std::vector<ParseNode> Args;
 
             PARSE_DATA_CREATE(CastExpression);
         };
@@ -171,7 +194,16 @@ namespace HSL
 
         struct ForStatement
         {
+            ForStatement(const ParseNode& init, const ParseNode& test, const ParseNode& update, const ParseNode& body)
+                : Init(init), Test(test), Update(update), Body(body)
+            {}
 
+            ParseNode Init;
+            ParseNode Test;
+            ParseNode Update;
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(ForStatement);
         };
 
         struct IfStatement
@@ -182,6 +214,15 @@ namespace HSL
         struct WhileStatement
         {
 
+        };
+
+        struct ReturnStatement
+        {
+            ReturnStatement(const ParseNode& value) : Value(value) {}
+
+            ParseNode Value;
+
+            PARSE_DATA_CREATE(ReturnStatement);
         };
     }
 
@@ -206,12 +247,14 @@ namespace HSL
         static ParseNode ParseBlock(const std::vector<Token>& tokens, u32 offset);
         static ParseNode ParseStatement(const std::vector<Token>& tokens, u32 offset);
         static ParseNode ParseBasic(const std::vector<Token>& tokens, u32 offset);
-        static ParseListReturn ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar);
+        static ParseListReturn ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar, const std::string& delim);
         static ParseFunctionDeclarationReturn ParseFunctionDeclaration(const std::vector<Token>& tokens, u32 offset);
-        static ParseListReturn ParseList(const std::vector<Token>& tokens, u32 offset);
+        static ParseNode ParseForLoop(const std::vector<Token>& tokens, u32 offset);
+        static ParseNode ParseVariableDeclaration(const std::vector<Token>& tokens, u32 offset, bool isConst);
 
-        static bool IsBasicOperator(const std::string& value); 
-        static bool IsAssignmentOperator(const std::string& value); 
+        static bool IsBasicOperator(const std::string& value);
+        static bool IsUpdateOperator(const std::string& value);
+        static bool IsAssignmentOperator(const std::string& value);
 
         inline static bool CheckToken(const Token& token, TokenType type, const std::string& check)
         {
