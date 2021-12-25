@@ -23,11 +23,14 @@ namespace HSL
         CallExpression,
         CastExpression,
         ListExpression,
+        PreprocessorExpression,
         VariableDeclaration,
         FunctionDeclaration,
         StructDeclaration,
         ForStatement,
         IfStatement,
+        ElseStatement,
+        ElseIfStatement,
         WhileStatement,
         ReturnStatement
     };
@@ -153,14 +156,33 @@ namespace HSL
             PARSE_DATA_CREATE(ListExpression);
         };
 
+        struct PreprocessorExpression
+        {
+            PreprocessorExpression(const std::string& expr, const std::string& body) : Expression(expr), Body(body) {}
+
+            std::string Expression;
+            std::string Body;
+
+            PARSE_DATA_CREATE(PreprocessorExpression);
+        };
+
+        struct KeywordStatusValues
+        {
+            bool Const = false;
+            bool Uniform = false;
+            bool Flat = false;
+            bool In = false;
+            bool Out = false;
+        };
+
         struct VariableDeclaration
         {
-            VariableDeclaration(bool isConst, const std::string& type, const std::string& name, int arrayCount, const ParseNode& init)
-                : Const(isConst), Type(type), Name(name), ArrayCount(arrayCount), Init(init) {}
+            VariableDeclaration(const KeywordStatusValues& keywordStatus, const std::string& type, const std::vector<ParseNode>& tempArgs, const std::string& name, int arrayCount, const ParseNode& init)
+                : KeywordStatus(keywordStatus), Type(type), TemplateArgs(tempArgs), Name(name), ArrayCount(arrayCount), Init(init) {}
 
-            bool Const;
-            bool Uniform;
+            KeywordStatusValues KeywordStatus;
             std::string Type;
+            std::vector<ParseNode> TemplateArgs;
             std::string Name;
             int ArrayCount;
             ParseNode Init;
@@ -223,6 +245,25 @@ namespace HSL
             PARSE_DATA_CREATE(IfStatement);
         };
 
+        struct ElseStatement
+        {
+            ElseStatement(const ParseNode& body) : Body(body) {}
+
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(ElseStatement);
+        };
+
+        struct ElseIfStatement
+        {
+            ElseIfStatement(const ParseNode& condition, const ParseNode& body) : Condition(condition), Body(body) {}
+
+            ParseNode Condition;
+            ParseNode Body;
+
+            PARSE_DATA_CREATE(ElseIfStatement);
+        };
+
         struct WhileStatement
         {
             WhileStatement(const ParseNode& condition, const ParseNode& body) : Condition(condition), Body(body) {}
@@ -264,14 +305,16 @@ namespace HSL
         static ParseNode ParseBlock(const std::vector<Token>& tokens, u32 offset);
         static ParseNode ParseStatement(const std::vector<Token>& tokens, u32 offset);
         static ParseNode ParseBasic(const std::vector<Token>& tokens, u32 offset);
-        static ParseListReturn ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar, const std::string& delim);
+        static ParseNode ParseTemplateArgument(const std::vector<Token>& tokens, u32 offset);
+        static ParseListReturn ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar);
         static ParseFunctionDeclarationReturn ParseFunctionDeclaration(const std::vector<Token>& tokens, u32 offset);
         static ParseNode ParseForLoop(const std::vector<Token>& tokens, u32 offset);
-        static ParseNode ParseVariableDeclaration(const std::vector<Token>& tokens, u32 offset, bool isConst);
+        static ParseNode ParseVariableDeclaration(const std::vector<Token>& tokens, u32 offset, const ParseData::KeywordStatusValues& keywordStatus);
 
         static bool IsBasicOperator(const std::string& value);
-        static bool IsUpdateOperator(const std::string& value);
         static bool IsAssignmentOperator(const std::string& value);
+        static bool IsUpdateOperator(const std::string& value);
+        static bool IsPreprocessorKeyword(const std::string& value);
 
         inline static bool CheckToken(const Token& token, TokenType type, const std::string& check)
         {

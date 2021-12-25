@@ -14,12 +14,13 @@ namespace HSL
             bool isPunctuation = IsPunctuation(c);
 
             // If there is a dot folling a number, then it is not actually a punctuation character
-            if (!buffer.empty() && c == '.' && std::isalnum(buffer.back()))
+            if (!buffer.empty() && c == '.' && IsLiteral(buffer))
                 isPunctuation = false;
 
             bool isLineComment = c == '/' && i != src.size() - 1 && src[i + 1] == '/';
             bool isBlockComment = c == '/' && i != src.size() - 1 && src[i + 1] == '*';
-            bool statementEnd = IsWhitespace(c) || isPunctuation || isLineComment || isBlockComment;
+            bool isPreprocessor = tokens.size() >= 2 && tokens[tokens.size() - 2].Value == "#";
+            bool statementEnd = IsWhitespace(c) || isPunctuation || isLineComment || isBlockComment || isPreprocessor;
             if (!statementEnd) buffer += c;
 
             // End of a statement
@@ -58,6 +59,27 @@ namespace HSL
                 if (i == std::numeric_limits<size_t>::max()) // If there are end statements then we are done
                     break;
                 i++; // second character
+                continue;
+            }
+
+            // Preprocessor expression
+            if (isPreprocessor)
+            {
+                size_t offset = src.find("\n", i); // Advance the lexer position to the next line
+
+                // Parse everything on that line as one token
+                std::string expression;
+                if (offset == std::numeric_limits<size_t>::max())
+                    expression = src.substr(i);
+                else
+                    expression = src.substr(i, offset - i);
+                tokens.push_back({
+                    TokenType::Literal, expression
+                });
+
+                i = offset;
+                if (i == std::numeric_limits<size_t>::max()) // If there are no more lines then we are done
+                    break;
                 continue;
             }
 
@@ -162,14 +184,16 @@ namespace HSL
             (token._Starts_with("uvec") && std::isdigit(token[3])) ||
             (token._Starts_with("dvec") && std::isdigit(token[3])) ||
             (token._Starts_with("mat") && std::isdigit(token[3]) ) || // TODO: add more matrix types
-            token == "bool"     || 
-            token == "int"      ||
-            token == "uint"     ||
-            token == "float"    ||
-            token == "double"   ||
-            token == "void"     ||
-            token == "tex2d"    ||
-            token == "texCube"
+            token == "bool"       || 
+            token == "int"        ||
+            token == "uint"       ||
+            token == "float"      ||
+            token == "double"     ||
+            token == "void"       ||
+            token == "tex2d"      ||
+            token == "texCube"    ||
+            token == "subpassTex" || 
+            token == "buffer"
         );
     }
 
@@ -179,10 +203,14 @@ namespace HSL
             token == "const"   ||
             token == "for"     ||
             token == "if"      ||
+            token == "else"    ||
             token == "while"   ||
             token == "struct"  ||
             token == "uniform" ||
-            token == "return"
+            token == "return"  ||
+            token == "in"      ||
+            token == "out"     ||
+            token == "flat"
         );
     }
 }

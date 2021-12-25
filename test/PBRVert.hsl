@@ -1,0 +1,40 @@
+#version 460
+
+#include "FrameBuffer.hsl"
+
+struct Instance
+{
+    vec4 objectId;
+};
+
+buffer<Instance, 12> instanceBuffer;
+
+out vec2 texCoord;
+out int entityId;
+out float depth;
+out vec3 worldPos;
+out vec3 normal;
+out vec3 tangent;
+out vec3 bitangent;
+out int instance;
+
+void main() {
+    int objectId = hl_InstanceIndex;
+    if (frameBuffer.cullEnable)
+    { objectId = int(instanceBuffer[hl_InstanceIndex].objectId.x); }
+
+    worldPos = (objectBuffer[objectId].model * vec4(inPosition, 1.0)).xyz;
+    vec4 viewPos = (frameBuffer.view * vec4(worldPos, 1.0));
+    depth = viewPos.z;
+    hl_OutPosition = frameBuffer.proj * viewPos;
+    
+    texCoord = inTexCoord;
+    entityId = int(objectBuffer[objectId].data[0]); // entity id
+    instance = objectId;
+
+    // adjust to match object rotation (and technically scale but it gets normalized out later)
+    normal = mat3(objectBuffer[objectId].model) * inNormal;
+    tangent = mat3(objectBuffer[objectId].model) * inTangent.xyz;
+    bitangent = cross(inTangent.xyz, inNormal);
+    bitangent *= inTangent.w;
+}

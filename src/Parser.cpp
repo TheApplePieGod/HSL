@@ -41,7 +41,7 @@ namespace HSL
             }
             else if (tokenCount >= 2 && tokens[offset + 1].Value == "(") // Function call
             {
-                auto parsedFunc = ParseList(tokens, offset + 2, ")", ",");
+                auto parsedFunc = ParseList(tokens, offset + 2, ")");
 
                 // Left is the current identifier
                 ParseNode callNode = {
@@ -187,7 +187,7 @@ namespace HSL
 
             if (tokenCount >= 2 && tokens[offset + 1].Value == "(") // Type cast
             {
-                auto args = ParseList(tokens, offset + 2, ")", ",");
+                auto args = ParseList(tokens, offset + 2, ")");
 
                 ParseNode castNode = {
                     NodeType::CastExpression,
@@ -244,7 +244,7 @@ namespace HSL
         }
         else if (tokens[offset].Value == "{") // Initializer list
         {
-            auto parsedList = ParseList(tokens, offset + 1, "}", ",");
+            auto parsedList = ParseList(tokens, offset + 1, "}");
 
             node.Type = NodeType::ListExpression;
             node.Data = ParseData::ListExpression::Create(
@@ -311,7 +311,42 @@ namespace HSL
         return node;
     }
 
-    Parser::ParseListReturn Parser::ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar, const std::string& delim)
+    ParseNode Parser::ParseTemplateArgument(const std::vector<Token>& tokens, u32 offset)
+    {
+        ParseNode node;
+        node.Start = offset;
+        node.End = offset;
+
+        int tokenCount = tokens.size() - offset;
+        if (tokenCount <= 0) throw std::exception("Missing expression");
+
+        // We don't want any function calls, member accesses, expressions, or anything in a template argument
+        if (tokenCount >= 2 && tokens[offset + 1].Value != "," && tokens[offset + 1].Value != ">")
+            throw std::exception("Invalid token following template argument");
+
+        if (tokens[offset].Type == TokenType::Identifier)
+        {
+            node.Type = NodeType::Identifier;
+            node.Data = ParseData::Identifier::Create(tokens[offset].Value);
+        }
+        else if (tokens[offset].Type == TokenType::Literal)
+        {
+            node.Type = NodeType::Literal;
+            node.Data = ParseData::Literal::Create(tokens[offset].Value);
+        }
+        else if (tokens[offset].Type == TokenType::Type)
+        {
+            // TODO: separate type node?
+            node.Type = NodeType::Literal;
+            node.Data = ParseData::Literal::Create(tokens[offset].Value);
+        }
+        else
+            throw std::exception("Invalid template argument syntax");
+
+        return node;
+    }
+
+    Parser::ParseListReturn Parser::ParseList(const std::vector<Token>& tokens, u32 offset, const std::string& endChar)
     {
         ParseListReturn returnVal;
 
@@ -326,7 +361,11 @@ namespace HSL
             if (tokens[i].Value == endChar) break;
 
             // Parse the expression
-            ParseNode parsed = ParseBasic(tokens, i);
+            ParseNode parsed;
+            if (endChar == ">") // We know we should parse templates when this is the ending char 
+                parsed = ParseTemplateArgument(tokens, i);
+            else
+                parsed = ParseBasic(tokens, i);
             returnVal.Elements.push_back(parsed);
 
             // Search for an end char inside the parsed statement. If found, then we need to update our statement end so that it is no longer
@@ -424,7 +463,7 @@ namespace HSL
         return returnVal;
     }
 
-    ParseNode Parser::ParseVariableDeclaration(const std::vector<Token>& tokens, u32 offset, bool isConst)
+    ParseNode Parser::ParseVariableDeclaration(const std::vector<Token>& tokens, u32 offset, const ParseData::KeywordStatusValues& keywordStatus)
     {
         ParseNode node;
         node.Type = NodeType::VariableDeclaration;
@@ -432,28 +471,38 @@ namespace HSL
         node.End = offset;
 
         int arrayCount = 0;
-        u32 endingOffset = 2;
+        u32 lastTokenOffset = offset + 2; // With nothing special, the semicolon should be two tokens away from the type
 
-        if (tokens[offset + 2].Value == "[") // Array variable
+        std::vector<ParseNode> templateArgs;
+        if (tokens[offset + 1].Value == "<") // Template arguments
+        {
+            auto parsed = ParseList(tokens, offset + 2, ">");
+            
+            templateArgs = parsed.Elements;
+            lastTokenOffset = parsed.LastToken + 2; // Semicolon should be two away from the > token
+        }
+
+        if (tokens[lastTokenOffset].Value == "[") // Array variable
         {
             try
-            { arrayCount = stoi(tokens[offset + 3].Value); }
+            { arrayCount = stoi(tokens[lastTokenOffset + 1].Value); }
             catch (std::exception e)
             { throw std::exception("Expected literal in variable array declaration"); }
 
-            if (tokens[offset + 4].Value != "]")
+            if (tokens[lastTokenOffset + 2].Value != "]")
                 throw std::exception("Expected ] after variable array declaration");
 
-            endingOffset = 5;
+            lastTokenOffset += 3;
         }
 
-        if (tokens[offset + endingOffset].Value == "=")
+        if (tokens[lastTokenOffset].Value == "=") // Initialization
         {
-            ParseNode parsedInit = ParseBasic(tokens, offset + endingOffset + 1); // Parse the variable initializer
+            ParseNode parsedInit = ParseBasic(tokens, lastTokenOffset + 1); // Parse the variable initializer
             node.Data = ParseData::VariableDeclaration::Create(
-                isConst,
+                keywordStatus,
                 tokens[offset].Value,
-                tokens[offset + 1].Value,
+                templateArgs,
+                tokens[lastTokenOffset - 1].Value,
                 arrayCount,
                 parsedInit
             );
@@ -464,16 +513,17 @@ namespace HSL
             // Return right away
             return node;
         }
-        else if (tokens[offset + endingOffset].Value == ";")
+        else if (tokens[lastTokenOffset].Value == ";")
         {
             node.Data = ParseData::VariableDeclaration::Create(
-                isConst,
+                keywordStatus,
                 tokens[offset].Value,
-                tokens[offset + 1].Value,
+                templateArgs,
+                tokens[lastTokenOffset - 1].Value,
                 arrayCount,
                 ParseNode() // No initializer
             );
-            node.End = offset + endingOffset;
+            node.End = lastTokenOffset;
 
             // Return right away
             return node;
@@ -496,8 +546,7 @@ namespace HSL
         auto semiLoc = std::find_if(tokens.begin() + offset, tokens.end(), [](const Token& val){ return val.Value == ";"; });
         size_t statementEnd = semiLoc - tokens.begin();
 
-        bool isConst = false;
-        bool isUniform = false;
+        ParseData::KeywordStatusValues keywordStatus;
         ParseNode leftNode;
         std::string assignmentOperator;
         for (size_t i = offset; i < statementEnd; i++)
@@ -508,8 +557,11 @@ namespace HSL
             {
                 if (node.Type != NodeType::None) throw std::exception("Unexpected keyword");
                     
-                if (token.Value == "const") isConst = true;
-                if (token.Value == "uniform") isUniform = true;
+                if (token.Value == "const") keywordStatus.Const = true;
+                if (token.Value == "uniform") keywordStatus.Uniform = true;
+                if (token.Value == "flat") keywordStatus.Flat = true;
+                if (token.Value == "in") keywordStatus.In = true;
+                if (token.Value == "out") keywordStatus.Out = true;
                 else if (token.Value == "for")
                 {
                     ParseNode parsedLoop = ParseForLoop(tokens, i + 2);
@@ -534,9 +586,56 @@ namespace HSL
 
                     return node;
                 }
+                else if (token.Value == "else")
+                {      
+                    if (tokens[i + 1].Value == "if")
+                    {
+                        ParseNode condition = ParseBasic(tokens, i + 3);
+                    
+                        if (tokens[condition.End + 2].Value != "{") throw std::exception("Expected { after if statement");
+
+                        ParseNode body = ParseBlock(tokens, condition.End + 2);
+
+                        node.Type = NodeType::ElseIfStatement;
+                        node.Data = ParseData::ElseIfStatement::Create(
+                            condition,
+                            body
+                        );
+                        node.End = body.End;
+
+                        return node;
+                    }
+                    else if (tokens[i + 1].Value == "{")
+                    {
+                        ParseNode body = ParseBlock(tokens, i + 1);
+
+                        node.Type = NodeType::ElseStatement;
+                        node.Data = ParseData::ElseStatement::Create(
+                            body
+                        );
+                        node.End = body.End;
+
+                        return node;
+                    }
+                    else
+                        throw std::exception("Unexpected token after else keyword");
+                }
                 else if (token.Value == "while")
                 {
+                    ParseNode condition = ParseBasic(tokens, i + 2);
                     
+                    if (tokens[condition.End + 2].Value != "{") throw std::exception("Expected { after while statement");
+
+                    ParseNode body = ParseBlock(tokens, condition.End + 2);
+
+                    node.Type = NodeType::WhileStatement;
+                    node.Data = ParseData::WhileStatement::Create(
+                        condition,
+                        body
+                    );
+                    node.End = body.End;
+
+                    return node;
                 }
                 else if (token.Value == "return")
                 {
@@ -568,7 +667,7 @@ namespace HSL
                     return node;
                 }
             }
-            else if (token.Type == TokenType::Type) // Some sort of declaration
+            else if (token.Type == TokenType::Type && tokens[i + 1].Value != "(") // Some sort of declaration (check for '(' to ensure it is not a cast expression))
             {
                 if (i + 2 < statementEnd && tokens[i + 2].Value == "(") // Function declaration
                 {
@@ -586,7 +685,7 @@ namespace HSL
                     ParseNode body = ParseBlock(tokens, parsedDeclaration.LastToken + 1);
 
                     node.Data = ParseData::FunctionDeclaration::Create(
-                        isConst,
+                        keywordStatus.Const,
                         token.Value,
                         parsedDeclaration.Params,
                         tokens[i + 1].Value,
@@ -601,7 +700,7 @@ namespace HSL
                 {
                     if (node.Type != NodeType::None) throw std::exception("Unexpected variable declaration");
 
-                    node = ParseVariableDeclaration(tokens, i, isConst);
+                    node = ParseVariableDeclaration(tokens, i, keywordStatus);
 
                     return node;
                 }
@@ -614,6 +713,24 @@ namespace HSL
                 node.Type = NodeType::AssignmentExpression;
 
                 assignmentOperator = token.Value;
+            }
+            else if (token.Value == "#") // Preprocessor expression
+            {
+                if (node.Type != NodeType::None) throw std::exception("Unexpected #");
+                node.Type = NodeType::PreprocessorExpression;
+
+                if (!IsPreprocessorKeyword(tokens[i + 1].Value)) throw std::exception("Keyword following # is not a valid preprocessor keyword");
+                if (tokens[i + 2].Type != TokenType::Literal) throw std::exception("Expected value following preprocessor keyword"); // this may not always work
+
+                // Expression will be entirely contained in the next token
+                node.Data = ParseData::PreprocessorExpression::Create(
+                    tokens[i + 1].Value,
+                    tokens[i + 2].Value
+                );
+                node.End = i + 2;
+
+                // Return right away
+                return node;
             }
             else
             {
@@ -728,6 +845,19 @@ namespace HSL
         return (
             value == "++"  ||
             value == "--"
+        );
+    }
+
+    bool Parser::IsPreprocessorKeyword(const std::string& value)
+    {
+        return (
+            value == "if"      ||
+            value == "ifdef"   ||
+            value == "else"    ||
+            value == "endif"   ||
+            value == "define"  ||
+            value == "include" ||
+            value == "version"
         );
     }
 }
